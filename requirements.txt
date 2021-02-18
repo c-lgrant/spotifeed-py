@@ -1,0 +1,5 @@
+Flask==1.1.2
+feedgen==0.9.0
+spotipy==2.16.1
+tinydb==4.4.0
+tinyrecord==0.2.0
