@@ -16,4 +16,4 @@ SPOTIPY_CLIENT_SECRET=<SPOTIFY_CLIENT_SECRET>
 
 RUN:
 
-python3 flask run --host=<ip> --port=<port>
+python3 flask run --host=(ip) --port=(port)
