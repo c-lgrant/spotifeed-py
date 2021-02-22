@@ -1,15 +1,16 @@
 import logging
 from datetime import datetime, timezone
-
+import re
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import time
 from feedgen.feed import FeedGenerator
-from flask import Flask, Response, redirect, url_for , json
+from flask import Flask, Response, json
 from tinydb import TinyDB, Query
 from tinydb.storages import MemoryStorage
-from tinyrecord import transaction
+import threading
 
+db_lock = threading.RLock()
 db = TinyDB(storage=MemoryStorage)
 UPDATE_INTERVAL = 360
 logging.basicConfig(filename='flask_log_{:%Y-%m-%d}.log'.format(datetime.now()),
@@ -27,7 +28,10 @@ app = Flask(__name__, static_url_path='')
 @app.route('/dump')
 def dump_db():
     dict_list = {}
-    for db_entry in db:
+    with db_lock:
+        db_entries = db.all()
+
+    for db_entry in db_entries:
         check_t = time.strftime('%Y-%m-%d %H:%M:%S',  time.localtime(db_entry.get('insert_t') - UPDATE_INTERVAL ))
         show_info = db_entry.get("show_info")
         show_uri = db_entry.get('show_uri')
@@ -53,6 +57,11 @@ def redirect_fav():
 @app.route('/<show_uri>', defaults={'country_code': "US"})
 @app.route('/<show_uri>/<country_code>')
 def get_show_rss(show_uri, country_code):
+    if not re.search("\A\w{22,22}$", show_uri):
+        return "Incorrect URI Format", 404
+    if not re.search("[a-zA-Z]{2}", country_code):
+        return "Incorrect country_code Format", 404
+
     doc_id = get_entry(show_uri, country_code)
     entry = db.get(doc_id=doc_id)
     return Response(str.encode(entry.get('rss_str')), mimetype='application/xml')
@@ -87,11 +96,12 @@ def generate_rss(show_info, show_uri, country_code):
 
 
 def get_entry(show_uri, country_code):
-    out = db.search(Query().show_uri == show_uri)
+    with db_lock:
+        db_entry = db.get(Query().show_uri == show_uri)
+
     doc_id = None
-    if out:
-        assert(len(out) == 1)
-        db_entry = out[0]
+    if db_entry:
+
         if db_entry.get('insert_t') <= int(datetime.now().timestamp()):
             doc_id = update_show(db_entry.doc_id)
         else:
@@ -113,14 +123,14 @@ def get_new_entry(show_uri, country_code):
         'country_code': country_code,
         'rss_str': generate_rss(show_info, show_uri, country_code)
     }
-
-    db.insert(db_entry)
-
-    return db.search(Query().show_uri == show_uri)[0].doc_id
+    with db_lock:
+        return db.insert(db_entry)
 
 
 def update_show(doc_id):
-    db_info = db.get(doc_id=doc_id)
+    with db_lock:
+        db_info = db.get(doc_id=doc_id)
+
     db_show_info = db_info.get("show_info")
     show_info = sp.show(show_id=db_info.get('show_uri'), market=db_info.get('country_code'))
     if show_info.get("total_episodes") != db_show_info.get("total_episodes"):
@@ -130,6 +140,7 @@ def update_show(doc_id):
             'rss_str': generate_rss(show_info, db_info.get('show_uri'), db_info.get('country_code'))
         }
 
-        db.update(db_update, doc_ids=[doc_id])
+        with db_lock:
+            db.update(db_update, doc_ids=[doc_id])
 
     return doc_id
