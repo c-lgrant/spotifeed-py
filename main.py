@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-
+import time
 from feedgen.feed import FeedGenerator
-from flask import Flask, Response, redirect, url_for
+from flask import Flask, Response, redirect, url_for , json
 from tinydb import TinyDB, Query
 from tinydb.storages import MemoryStorage
 from tinyrecord import transaction
@@ -17,10 +17,23 @@ logging.basicConfig(filename='flask_log_{:%Y-%m-%d}.log'.format(datetime.now()),
                             format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
                             datefmt='%H:%M:%S',
                             level=logging.INFO)
+logging.getLogger().addHandler(logging.StreamHandler())
+
 auth_manager = SpotifyClientCredentials()
 sp = spotipy.Spotify(auth_manager=auth_manager)
 app = Flask(__name__, static_url_path='')
 
+
+@app.route('/dump')
+def dump_db():
+    dict_list = {}
+    for db_entry in db:
+        check_t = time.strftime('%Y-%m-%d %H:%M:%S',  time.localtime(db_entry.get('insert_t') - UPDATE_INTERVAL ))
+        show_info = db_entry.get("show_info")
+        show_uri = db_entry.get('show_uri')
+        dict_list[show_info.get("name")] = {'last_check':check_t,'uri':show_uri}
+
+    return Response(json.dumps(dict_list), mimetype='application/json')
 
 @app.route('/')
 def root():
